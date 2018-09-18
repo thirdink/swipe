@@ -3,11 +3,21 @@ import {
     View,
     Animated,
     PanResponder,
-    Dimensions
+    Dimensions,
+    LayoutAnimation,
+    UIManager,
 } from 'react-native';
 
 const SCREEN_WIDTH = Dimensions.get('window').width; // retrieve the width of the screen
+const SWIPE_THRESHOLD = 0.25 * SCREEN_WIDTH;
+const SWIPE_OUT_DURATION = 250;
+
 class Deck extends Component{
+    static defaultProps = {
+        onSwipeRight: () => {},
+        onSwipeLeft: ()=> {}
+    }
+
     constructor(props){
         super(props);
         const position = new Animated.ValueXY();
@@ -19,11 +29,52 @@ class Deck extends Component{
                 
                 
             }, // when the user drags anthing on the screen
-            onPanResponderRelease: () => {}
+            onPanResponderRelease: (event,gesture) => {
+                if (gesture.dx > SWIPE_THRESHOLD){
+                    this.forceSwipe('right');
+                    
+                } else if (gesture.dx < -SWIPE_THRESHOLD){
+                    this.forceSwipe('left');
+                } else {
+                    this.resetPosition();
+                }
+                
+            }
             // when the user presses down and remove the finger ro the screen
         });
         
-        this.state = { panResponse , position };
+        this.state = { panResponse , position , index: 0}; // index starts at 0 
+    }
+    componentWillReceiveProps(nextProps){
+        if(nextProps.data !== this.props.data){
+            this.setState({ index:0});
+        }
+    }
+    componentWillUpdate(){
+        UIManager.setLayoutAnimationEnabledExperimental && UIManager.setLayoutAnimationEnabledExperimental(true);
+        LayoutAnimation.spring();
+    }
+
+    forceSwipe(direction){
+        const x = direction === 'right' ? SCREEN_WIDTH : -SCREEN_WIDTH;
+        Animated.timing(this.state.position,{
+            toValue: {x, y: 0},
+            duration: SWIPE_OUT_DURATION
+        }).start(() => this.onSwipeComplete(direction));
+    }
+    onSwipeComplete(direction){
+        const { onSwipeLeft, onSwipeRight,data } = this.props;
+        const item = data[this.state.index];
+        direction === 'right' ? onSwipeRight(item) : onSwipeLeft(item);
+        this.state.position.setValue({ x:0,y:0}); // reset the position
+        this.setState({ index: this.state.index +1});
+    }
+    resetPosition(){
+        Animated.spring(this.state.position,{
+            toValue: {
+                x:0, y:0
+            }
+        }).start();
     }
     getCardStyle(){
         const { position } = this.state;
@@ -38,12 +89,17 @@ class Deck extends Component{
         };
     }
     renderCards(){
-        return this.props.data.map((item, index) => {
-            if(index === 0){
+
+        if ( this.state.index >= this.props.data.length){
+            return this.props.renderNoMoreCards();
+        }
+        return this.props.data.map((item, i) => {
+            if(i < this.state.index) { return null; }
+            if(i === this.state.index){
                 return (
                     <Animated.View
                     key={item.id}
-                    style={this.getCardStyle()}
+                    style={[this.getCardStyle(), styles.cardStyle]}
             {...this.state.panResponse.panHandlers}
                     >
                         {
@@ -52,8 +108,17 @@ class Deck extends Component{
                     </Animated.View>
                 )
             }
-            return this.props.renderCard(item);
-        });
+            return (
+                <Animated.View 
+                 key={item.id} 
+                 style={[styles.cardStyle,{ top: 10 * (i-this.state.index) }]}
+                 >
+                    {this.props.renderCard(item)}
+                </Animated.View>
+             
+                
+                );
+        }).reverse();
     }
     render(){
         return(
@@ -63,6 +128,12 @@ class Deck extends Component{
                 {this.renderCards()}
             </View>
         );
+    }
+}
+const styles = {
+    cardStyle: {
+        position: 'absolute',
+        width: SCREEN_WIDTH
     }
 }
 export default Deck;
